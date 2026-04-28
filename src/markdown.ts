@@ -50,12 +50,17 @@ export function renderBundleMarkdown(bundle: VideoBundle): string {
   }
   lines.push("");
   if (meta.description.trim()) {
-    // Render description as an indented code block so creator-controlled markdown
-    // (headers, lists, tables, links) renders as literal text, not structure.
+    // Render description inside a tilde-fenced code block so creator-controlled
+    // markdown (headers, lists, tables, links) renders as literal text. Tilde
+    // fences sidestep collisions with backticks in the body. A description
+    // containing "~~~" on its own line could close our fence early — prefix
+    // any such line with a zero-width space so it can't.
     lines.push("## Description", "");
-    for (const ln of meta.description.trim().split(/\r?\n/)) {
-      lines.push(`    ${ln}`);
+    lines.push("~~~");
+    for (const ln of meta.description.replace(/\r/g, "").split("\n")) {
+      lines.push(/^~{3,}$/.test(ln.trim()) ? `​${ln}` : ln);
     }
+    lines.push("~~~");
     lines.push("");
   }
   if (chapters.length > 0) {

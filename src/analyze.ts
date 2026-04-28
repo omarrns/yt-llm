@@ -22,7 +22,13 @@ import {
 export type AnalyzeOptions = {
   /** Subtitle language patterns to fetch. Defaults to `['en.*']` to match the Python script. */
   subLangs?: string[];
-  /** Abort the operation. Honored between videos; in-flight yt-dlp processes are not killed. */
+  /**
+   * Honored between playlist entries. Aborting after `fetchEntries` returns
+   * does not interrupt an in-flight `fetchInfo` or caption fetch — the current
+   * entry runs to completion, then the loop exits. For single-video calls this
+   * means `abort()` is effectively a no-op until the call resolves. True
+   * per-process cancellation is on the v0.2 roadmap.
+   */
   signal?: AbortSignal;
   /** Cap on entries pulled from a playlist. Default 200. Set to 0 to disable. */
   maxEntries?: number;
@@ -117,6 +123,10 @@ export async function analyze(
     });
   }
 
+  // Pre-sized slot array preserves playlist order under concurrency > 1
+  // (workers complete out-of-order; bundles[i] must still correspond to
+  // limited[i] so consumers can join against the original entries list).
+  const slots: (VideoBundle | undefined)[] = new Array(limited.length);
   let cursor = 0;
   const workerCount = Math.min(concurrency, limited.length);
   const workers = Array.from({ length: workerCount }, async () => {
@@ -135,7 +145,7 @@ export async function analyze(
           });
           continue;
         }
-        bundles.push(result.bundle);
+        slots[idx] = result.bundle;
         raw[entry.id] = result.rawInfo;
         if (result.transcriptError) {
           errors.push({
@@ -150,6 +160,8 @@ export async function analyze(
     }
   });
   await Promise.all(workers);
+
+  for (const b of slots) if (b) bundles.push(b);
 
   if (signal?.aborted) {
     errors.push({ id: url, kind: "playlist", reason: "aborted mid-run" });

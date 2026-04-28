@@ -1,6 +1,7 @@
 import type { VideoBundle } from "./schema.js";
 
-const INVISIBLE_RE = /[​-‏‪-‮⁠-⁯﻿]/g;
+const INVISIBLE_RE =
+  /[\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{206F}\u{FEFF}\u{E0000}-\u{E007F}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu;
 const NEWLINE_RE = /[\r\n]+/g;
 const MULTI_SPACE_RE = /\s{2,}/g;
 

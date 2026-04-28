@@ -1,6 +1,6 @@
 {
   "name": "yt-llm",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "YouTube → typed VideoBundle. Captions, metadata, chapters in one validated object designed for LLM pipelines.",
   "keywords": [
     "youtube",

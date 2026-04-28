@@ -36,6 +36,7 @@ export function parseSrt(text: string): TranscriptSegment[] {
     } catch {
       continue;
     }
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
     const body = lines
       .filter((l) => !l.includes("-->") && !/^\d+$/.test(l))
       .join(" ")

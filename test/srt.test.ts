@@ -51,4 +51,13 @@ describe("parseSrt", () => {
     const segs = parseSrt(sample);
     expect(segs).toEqual([{ startSec: 2, endSec: 3, text: "okay" }]);
   });
+
+  it("skips cues with non-numeric milliseconds (NaN-time guard)", () => {
+    // parseSrtTime returns NaN for "00:00:01,abc" instead of throwing — the
+    // NaN must be caught here so the bad cue is dropped, not pushed into the
+    // bundle where Zod would later reject it and fail the entire video.
+    const sample = `1\n00:00:01,abc --> 00:00:02,000\nbad cue\n\n2\n00:00:03,000 --> 00:00:04,000\ngood\n`;
+    const segs = parseSrt(sample);
+    expect(segs).toEqual([{ startSec: 3, endSec: 4, text: "good" }]);
+  });
 });

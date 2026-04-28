@@ -3,10 +3,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { analyze } from "../analyze.js";
 import { DEFAULT_ALLOWED_HOSTS, isAllowedHost } from "../url.js";
+import pkg from "../../package.json" with { type: "json" };
 
 const server = new McpServer({
   name: "yt-llm",
-  version: "0.1.0",
+  version: pkg.version,
 });
 
 server.registerTool(

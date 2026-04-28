@@ -220,6 +220,36 @@ describe("analyze — playlist controls", () => {
     expect(maxInFlight).toBeGreaterThan(1);
     expect(maxInFlight).toBeLessThanOrEqual(4);
   });
+
+  it("preserves playlist order in bundles even when workers complete out-of-order", async () => {
+    const entries = Array.from({ length: 8 }, (_, i) => ({
+      id: `v${i}`,
+      url: `https://youtube.com/watch?v=v${i}`,
+    }));
+    vi.mocked(yt.fetchEntries).mockResolvedValue(entries);
+    // Force completion in reverse order: later entries finish first.
+    vi.mocked(yt.fetchInfo).mockImplementation(async (url: string) => {
+      const m = url.match(/v(\d+)/);
+      const i = m ? Number(m[1]) : 0;
+      await new Promise((r) => setTimeout(r, (8 - i) * 5));
+      return videoInfo();
+    });
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+
+    const r = await analyze("https://youtube.com/playlist?list=p", {
+      concurrency: 4,
+    });
+    expect(r.bundles.map((b) => b.source.id)).toEqual([
+      "v0",
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5",
+      "v6",
+      "v7",
+    ]);
+  });
 });
 
 describe("analyze — happy path", () => {
