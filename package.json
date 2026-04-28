@@ -15,6 +15,15 @@
     "structured-output"
   ],
   "license": "MIT",
+  "author": "Omar Nasser <omarns059@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omarrns/yt-llm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/omarrns/yt-llm/issues"
+  },
+  "homepage": "https://github.com/omarrns/yt-llm#readme",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,8 +34,8 @@
     }
   },
   "bin": {
-    "yt-llm": "./dist/cli.js",
-    "yt-llm-mcp": "./dist/mcp.js"
+    "yt-llm": "dist/cli.js",
+    "yt-llm-mcp": "dist/mcp.js"
   },
   "files": [
     "dist",
