@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsx src/cli.ts",
+    "dev": "tsx src/cli-bin.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
