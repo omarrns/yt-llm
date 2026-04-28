@@ -11,7 +11,7 @@ export default defineConfig([
     shims: false,
   },
   {
-    entry: { cli: "src/cli.ts", mcp: "src/mcp/server.ts" },
+    entry: { cli: "src/cli-bin.ts", mcp: "src/mcp/bin.ts" },
     format: ["esm"],
     dts: false,
     clean: false,

@@ -22,19 +22,29 @@ function oneLine(s: string): string {
   return s.replace(NEWLINE_RE, " ").trim();
 }
 
+/**
+ * `oneLine` plus backslash-escape of the four characters that compose a
+ * Markdown inline link: `[` `]` `(` `)`. Apply to any creator-controlled field
+ * rendered as bare Markdown text so a chapter title like `[click](evil)` can't
+ * become a clickable link in an HTML preview of `bundle.md`.
+ */
+function mdEscape(s: string): string {
+  return oneLine(s).replace(/[\[\]()]/g, "\\$&");
+}
+
 export function renderBundleMarkdown(bundle: VideoBundle): string {
   const { meta, source, chapters, transcript } = bundle;
   const lines: string[] = [];
-  lines.push(`# ${oneLine(meta.title) || "Untitled"}`);
+  lines.push(`# ${mdEscape(meta.title) || "Untitled"}`);
   lines.push("");
-  lines.push(`**Channel:** ${oneLine(meta.channel || meta.uploader || "?")}`);
+  lines.push(`**Channel:** ${mdEscape(meta.channel || meta.uploader || "?")}`);
   const uploaded = meta.uploadedAt || "?";
   const duration = meta.durationString || String(meta.durationSec || "?");
   const views = meta.views ?? "?";
   lines.push(
     `**Uploaded:** ${uploaded}  •  **Duration:** ${duration}  •  **Views:** ${views}`,
   );
-  lines.push(`**URL:** ${source.url}`);
+  lines.push(`**URL:** ${mdEscape(source.url)}`);
   if (transcript) {
     const detail = transcript.sourceDetail
       ? ` (${oneLine(transcript.sourceDetail)})`
@@ -46,7 +56,7 @@ export function renderBundleMarkdown(bundle: VideoBundle): string {
     lines.push(`**Transcript source:** none`);
   }
   if (meta.tags.length > 0) {
-    lines.push(`**Tags:** ${meta.tags.slice(0, 20).map(oneLine).join(", ")}`);
+    lines.push(`**Tags:** ${meta.tags.slice(0, 20).map(mdEscape).join(", ")}`);
   }
   lines.push("");
   if (meta.description.trim()) {
@@ -66,14 +76,14 @@ export function renderBundleMarkdown(bundle: VideoBundle): string {
   if (chapters.length > 0) {
     lines.push("## Chapters", "");
     for (const c of chapters) {
-      lines.push(`- [${formatTimestamp(c.startSec)}] ${oneLine(c.title)}`);
+      lines.push(`- [${formatTimestamp(c.startSec)}] ${mdEscape(c.title)}`);
     }
     lines.push("");
   }
   lines.push("## Transcript", "");
   if (transcript) {
     for (const p of transcript.paragraphs) {
-      lines.push(`[${formatTimestamp(p.startSec)}] ${oneLine(p.text)}\n`);
+      lines.push(`[${formatTimestamp(p.startSec)}] ${mdEscape(p.text)}\n`);
     }
   } else {
     lines.push("_No captions available._");

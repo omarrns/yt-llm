@@ -106,7 +106,7 @@ export async function fetchCaptionsToTemp(
   const srts = readdirSync(tempDir)
     .filter((f) => f.endsWith(".srt"))
     .map((f) => join(tempDir, f));
-  const chosen = pickPreferredSrt(srts);
+  const chosen = pickPreferredSrt(srts, subLangs);
   if (chosen) {
     return {
       kind: "ok",

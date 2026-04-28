@@ -51,6 +51,8 @@ export async function analyze(
   const subLangs = options.subLangs ?? ["en.*"];
   const allowed = options.allowedHosts ?? DEFAULT_ALLOWED_HOSTS;
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  // CLI's `parsePositive` rejects <1; library callers passing 0 still get
+  // clamped to 1 here so a bad value can't deadlock the worker pool.
   const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
   const socketTimeout = options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT;
   const signal = options.signal;
@@ -135,6 +137,17 @@ export async function analyze(
       const idx = cursor++;
       if (idx >= limited.length) return;
       const entry = limited[idx]!;
+      // Re-validate per entry. yt-dlp's flat-playlist can return webpage_urls
+      // that route through non-YouTube extractors; the top-level allowlist
+      // check on the input URL doesn't cover them.
+      if (allowed !== "any" && !isAllowedHost(entry.url, allowed)) {
+        errors.push({
+          id: entry.id,
+          kind: "video",
+          reason: `entry url host not in allowlist: ${entry.url}`,
+        });
+        continue;
+      }
       try {
         const result = await analyzeOne(entry, subLangs, socketTimeout);
         if (!result) {
@@ -146,6 +159,13 @@ export async function analyze(
           continue;
         }
         slots[idx] = result.bundle;
+        if (entry.id in raw) {
+          errors.push({
+            id: entry.id,
+            kind: "playlist",
+            reason: `duplicate entry id ${entry.id}; raw.info kept the last occurrence`,
+          });
+        }
         raw[entry.id] = result.rawInfo;
         if (result.transcriptError) {
           errors.push({

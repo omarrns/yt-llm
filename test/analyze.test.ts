@@ -273,3 +273,53 @@ describe("analyze — happy path", () => {
     expect(r.raw["vid"]).toBe(info);
   });
 });
+
+describe("analyze — per-entry host allowlist", () => {
+  it("rejects a cross-host entry without calling fetchInfo on it", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "ok", url: "https://youtube.com/watch?v=ok" },
+      { id: "bad", url: "https://vimeo.com/12345" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+
+    const r = await analyze("https://youtube.com/playlist?list=p");
+    expect(r.bundles).toHaveLength(1);
+    expect(r.bundles[0]?.source.id).toBe("ok");
+    expect(yt.fetchInfo).toHaveBeenCalledTimes(1);
+    const crossHost = r.errors.find((e) => e.id === "bad");
+    expect(crossHost?.kind).toBe("video");
+    expect(crossHost?.reason).toMatch(/not in allowlist/);
+  });
+
+  it("does not re-check entries when allowedHosts is 'any'", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "x", url: "https://example.com/foo" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+
+    const r = await analyze("https://example.com/foo", {
+      allowedHosts: "any",
+    });
+    expect(r.bundles).toHaveLength(1);
+    expect(yt.fetchInfo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("analyze — schema id constraint", () => {
+  it("surfaces a kind:video error when entry.id contains path-traversal chars", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "../../evil", url: "https://youtube.com/watch?v=ok" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+
+    const r = await analyze("https://youtube.com/playlist?list=p");
+    expect(r.bundles).toEqual([]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]?.kind).toBe("video");
+    expect(r.errors[0]?.id).toBe("../../evil");
+    expect(r.errors[0]?.reason).toMatch(/id/i);
+  });
+});

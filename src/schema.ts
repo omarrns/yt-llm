@@ -26,6 +26,13 @@ export const TranscriptSourceSchema = z.enum([
 export const TranscriptSchema = z.object({
   source: TranscriptSourceSchema,
   sourceDetail: z.string().nullable(),
+  /**
+   * Language tag parsed from the SRT filename emitted by yt-dlp (e.g. `en`,
+   * `en-orig`, `en-en`, `ar`). NOT normalized to BCP-47 — the value can include
+   * yt-dlp suffixes like `-orig` (auto-translated source) or `-en` (auto-dubbed
+   * target). Consumers filtering by language should match prefix, not exact
+   * equality (`lang.startsWith("en")` rather than `lang === "en"`).
+   */
   language: z.string(),
   full: z.string(),
   segments: z.array(TranscriptSegmentSchema),
@@ -57,7 +64,14 @@ export const VideoMetaSchema = z.object({
 
 export const VideoSourceSchema = z.object({
   url: z.string(),
-  id: z.string(),
+  // Constrained to filename-safe chars so it can't escape an outputDir
+  // when used as a path segment by writeBundle. Canonical YouTube IDs
+  // are 11 chars; the upper bound is generous for non-YouTube extractors.
+  id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9_-]+$/, "id must match /^[A-Za-z0-9_-]+$/"),
   platform: z.literal("youtube"),
 });
 
@@ -87,6 +101,12 @@ export type AnalyzeError = {
 export type AnalyzeResult = {
   bundles: VideoBundle[];
   errors: AnalyzeError[];
-  /** Raw, unfiltered yt-dlp info per video id. Loosely typed to keep the public surface clean — used by `writeBundle()` to emit `raw.info.json` for parity with the Python script. */
+  /**
+   * Raw, unfiltered yt-dlp info per video id. Loosely typed to keep the public
+   * surface clean — used by `writeBundle()` to emit `raw.info.json` for parity
+   * with the Python script. Duplicate ids in a playlist (re-uploaded shorts,
+   * curated lists) keep only the last occurrence; a `kind: "playlist"` warning
+   * is emitted in `errors` when this happens.
+   */
   raw: Record<string, unknown>;
 };

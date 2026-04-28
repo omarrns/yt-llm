@@ -18,9 +18,26 @@ describe("pickPreferredSrt", () => {
     expect(pickPreferredSrt(files)).toBe("/tmp/raw.en.srt");
   });
 
-  it("falls back to first sorted match when no plain raw.en.srt exists", () => {
+  it("matches en.* wildcard variants (en-orig, en-US) before falling back to other languages", () => {
+    // Default subLangs is ["en.*"], so an en-orig variant should win over ar
+    // even though ar sorts alphabetically first.
     const files = ["/tmp/raw.en-orig.srt", "/tmp/raw.ar.srt"];
-    expect(pickPreferredSrt(files)).toBe("/tmp/raw.ar.srt");
+    expect(pickPreferredSrt(files)).toBe("/tmp/raw.en-orig.srt");
+  });
+
+  it("falls back to alphabetical first when no subLang matches", () => {
+    const files = ["/tmp/raw.fr.srt", "/tmp/raw.de.srt"];
+    expect(pickPreferredSrt(files, ["en.*"])).toBe("/tmp/raw.de.srt");
+  });
+
+  it("respects subLangs order — picks first matching language", () => {
+    const files = ["/tmp/raw.en.srt", "/tmp/raw.es.srt", "/tmp/raw.fr.srt"];
+    expect(pickPreferredSrt(files, ["es", "fr", "en"])).toBe("/tmp/raw.es.srt");
+  });
+
+  it("prefers plain language over locale variants within the same subLang", () => {
+    const files = ["/tmp/raw.en-orig.srt", "/tmp/raw.en.srt"];
+    expect(pickPreferredSrt(files, ["en"])).toBe("/tmp/raw.en.srt");
   });
 });
 

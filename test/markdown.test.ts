@@ -143,4 +143,40 @@ describe("renderBundleMarkdown — markdown-injection guards", () => {
     const md = renderBundleMarkdown(b);
     expect(md.split("\n")[0]).toBe("# Untitled");
   });
+
+  it("escapes [ ] ( ) in title so a creator-controlled link cannot render", () => {
+    const b = makeBundle();
+    b.meta.title = "[click](http://evil)";
+    const md = renderBundleMarkdown(b);
+    expect(md).toContain("# \\[click\\]\\(http://evil\\)");
+  });
+
+  it("escapes [ ] ( ) in channel, tags, chapter titles, source url, and paragraphs", () => {
+    const b = makeBundle();
+    b.meta.channel = "[chan](http://evil)";
+    b.meta.tags = ["[t](evil)", "ok"];
+    b.chapters = [{ startSec: 0, title: "[click](http://evil)" }];
+    b.source.url = "https://youtu.be/[fake](evil)";
+    b.transcript = {
+      source: "captions",
+      sourceDetail: "raw.en.srt",
+      language: "en",
+      full: "[click](http://evil)",
+      segments: [],
+      paragraphs: [{ startSec: 0, text: "[click](http://evil)" }],
+    };
+    const md = renderBundleMarkdown(b);
+    expect(md).toContain("**Channel:** \\[chan\\]\\(http://evil\\)");
+    expect(md).toContain("**Tags:** \\[t\\]\\(evil\\), ok");
+    expect(md).toContain("- [00:00] \\[click\\]\\(http://evil\\)");
+    expect(md).toContain("**URL:** https://youtu.be/\\[fake\\]\\(evil\\)");
+    expect(md).toContain("[00:00] \\[click\\]\\(http://evil\\)");
+    // No raw markdown link (a `[text](url)` sequence) should appear in the
+    // rendered file outside the description fence.
+    const outsideFence = md
+      .split("\n")
+      .filter((l) => !l.startsWith("    "))
+      .join("\n");
+    expect(outsideFence).not.toMatch(/(?<!\\)\[[^\]]+\]\([^)]+\)/);
+  });
 });

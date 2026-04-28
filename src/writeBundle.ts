@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { renderBundleMarkdown, formatTimestamp } from "./markdown.js";
 import type { VideoBundle } from "./schema.js";
 
@@ -22,6 +22,16 @@ export function writeBundle(
   options: WriteBundleOptions,
 ): WriteBundleResult {
   const dir = join(options.outputDir, bundle.source.id);
+  // Defense in depth against path traversal — VideoSourceSchema already
+  // restricts id to [A-Za-z0-9_-], but library users who hand-build a
+  // bundle without parse() shouldn't be able to escape outputDir either.
+  // With force:true the next line is rmSync, so a bad id deletes outside.
+  const rel = relative(resolve(options.outputDir), resolve(dir));
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(
+      `bundle.source.id escapes outputDir: ${JSON.stringify(bundle.source.id)}`,
+    );
+  }
   if (options.force) rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
 

@@ -106,4 +106,19 @@ describe("writeBundle", () => {
     );
     expect(metaJson).toEqual(bundle.meta);
   });
+
+  it("rejects a bundle whose source.id would escape outputDir (path traversal)", () => {
+    const bundle = makeBundle();
+    // Bypass the schema regex by casting — simulates a hand-built bundle
+    // skipping VideoBundleSchema.parse(). Without the resolve-check this
+    // would write into outDir's parent.
+    (bundle.source as { id: string }).id = "../../../tmp/yt-llm-pwn";
+    expect(() => writeBundle(bundle, { outputDir: outDir })).toThrow(
+      /escapes outputDir/,
+    );
+    // Also confirm nothing was written outside outDir.
+    expect(
+      existsSync(join(outDir, "..", "..", "..", "tmp", "yt-llm-pwn")),
+    ).toBe(false);
+  });
 });
