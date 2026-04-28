@@ -4,6 +4,8 @@ Turn a YouTube URL into a typed, Zod-validated `VideoBundle`: metadata, chapters
 
 Same pipeline three ways: import `analyze(url)` in TypeScript, run `yt-llm <url>` from the shell, or run `yt-llm-mcp` so Claude Desktop, Cursor, or any MCP client can call it.
 
+The repo ships an opinionated Claude Code skill for analyzing YouTube transcripts and videos. It auto-loads when you run Claude Code inside this repo, and it can be installed globally for any project.
+
 v0.1 is captions-only (no native compile-time deps; `yt-dlp` is pulled when you install). Whisper, Deepgram, and keyframes are planned.
 
 ## Install
@@ -157,6 +159,19 @@ The server registers a single tool:
 | Output    | `{ bundles: VideoBundle[], errors: { id, reason, kind?: "playlist"\|"video"\|"transcript" }[] }` (as text) |
 
 `url` is validated against a YouTube hostname allowlist before any network call; non-YouTube URLs are rejected without invoking yt-dlp.
+
+## Claude Code skill
+
+The repo ships an opinionated Claude Code skill at [`.claude/skills/analyze-meetings/`](./.claude/skills/analyze-meetings/SKILL.md). It auto-loads when you run Claude Code inside this repo, and it can be installed globally for any project:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r .claude/skills/analyze-meetings ~/.claude/skills/
+```
+
+Once installed, the skill triggers when you paste 2+ YouTube URLs in a single message, or 1 URL with meeting framing ("call", "podcast", "all-hands", "recap"). It calls `npx -y yt-llm <URL> --json` in parallel per URL and synthesizes a meeting-style report — decisions, action items, key topics, open questions, and verbatim quotes, all with `[mm:ss]` cites. With 2+ meetings it adds a cross-meeting synthesis (recurring topics, decision threads, open loops).
+
+It's a thin prompting layer over the same `analyze()` call exposed by the library, CLI, and MCP server — same pipeline, meeting-shaped output.
 
 ## Untrusted-content note (read this before piping bundles into an LLM)
 
