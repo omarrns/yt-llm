@@ -1,0 +1,66 @@
+{
+  "name": "yt-llm",
+  "version": "0.1.0",
+  "description": "YouTube → typed VideoBundle. Captions, metadata, chapters in one validated object designed for LLM pipelines.",
+  "keywords": [
+    "youtube",
+    "transcript",
+    "captions",
+    "yt-dlp",
+    "llm",
+    "ai",
+    "ai-sdk",
+    "mcp",
+    "rag",
+    "structured-output"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "yt-llm": "./dist/cli.js",
+    "yt-llm-mcp": "./dist/mcp.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^14.0.3",
+    "ytdlp-nodejs": "^3.4.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "ytdlp-nodejs"
+    ]
+  }
+}

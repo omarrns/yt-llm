@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.tsup/
+*.log
+.DS_Store
+
+# vitest
+coverage/
+
+# tarballs from `pnpm pack`
+*.tgz
+
+# scratch
+.tmp/
