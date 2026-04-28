@@ -1,5 +1,7 @@
 import type { VideoBundle } from "./schema.js";
 
+const NEWLINE_RE = /[\r\n]+/g;
+
 export function formatTimestamp(sec: number): string {
   const total = Math.max(0, Math.floor(sec));
   const m = Math.floor(total / 60);
@@ -11,12 +13,21 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
+/**
+ * Collapse newlines and trim. Used for fields rendered on a single Markdown line
+ * (title, channel, tags, chapter titles) so a creator-controlled `\n##` can't
+ * inject a fake heading into the output.
+ */
+function oneLine(s: string): string {
+  return s.replace(NEWLINE_RE, " ").trim();
+}
+
 export function renderBundleMarkdown(bundle: VideoBundle): string {
   const { meta, source, chapters, transcript } = bundle;
   const lines: string[] = [];
-  lines.push(`# ${meta.title || "Untitled"}`);
+  lines.push(`# ${oneLine(meta.title) || "Untitled"}`);
   lines.push("");
-  lines.push(`**Channel:** ${meta.channel || meta.uploader || "?"}`);
+  lines.push(`**Channel:** ${oneLine(meta.channel || meta.uploader || "?")}`);
   const uploaded = meta.uploadedAt || "?";
   const duration = meta.durationString || String(meta.durationSec || "?");
   const views = meta.views ?? "?";
@@ -26,7 +37,7 @@ export function renderBundleMarkdown(bundle: VideoBundle): string {
   lines.push(`**URL:** ${source.url}`);
   if (transcript) {
     const detail = transcript.sourceDetail
-      ? ` (${transcript.sourceDetail})`
+      ? ` (${oneLine(transcript.sourceDetail)})`
       : "";
     lines.push(
       `**Transcript source:** ${labelFor(transcript.source)}${detail}`,
@@ -35,23 +46,29 @@ export function renderBundleMarkdown(bundle: VideoBundle): string {
     lines.push(`**Transcript source:** none`);
   }
   if (meta.tags.length > 0) {
-    lines.push(`**Tags:** ${meta.tags.slice(0, 20).join(", ")}`);
+    lines.push(`**Tags:** ${meta.tags.slice(0, 20).map(oneLine).join(", ")}`);
   }
   lines.push("");
   if (meta.description.trim()) {
-    lines.push("## Description", "", meta.description.trim(), "");
+    // Render description as an indented code block so creator-controlled markdown
+    // (headers, lists, tables, links) renders as literal text, not structure.
+    lines.push("## Description", "");
+    for (const ln of meta.description.trim().split(/\r?\n/)) {
+      lines.push(`    ${ln}`);
+    }
+    lines.push("");
   }
   if (chapters.length > 0) {
     lines.push("## Chapters", "");
     for (const c of chapters) {
-      lines.push(`- [${formatTimestamp(c.startSec)}] ${c.title}`);
+      lines.push(`- [${formatTimestamp(c.startSec)}] ${oneLine(c.title)}`);
     }
     lines.push("");
   }
   lines.push("## Transcript", "");
   if (transcript) {
     for (const p of transcript.paragraphs) {
-      lines.push(`[${formatTimestamp(p.startSec)}] ${p.text}\n`);
+      lines.push(`[${formatTimestamp(p.startSec)}] ${oneLine(p.text)}\n`);
     }
   } else {
     lines.push("_No captions available._");

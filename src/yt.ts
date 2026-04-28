@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   YtDlp,
   type ExecBuilderResult,
@@ -8,16 +8,33 @@ import {
 } from "ytdlp-nodejs";
 import { languageFromSrtName, pickPreferredSrt } from "./transcript/index.js";
 
-const ytdlp = new YtDlp();
+let _ytdlp: YtDlp | null = null;
+function getYtDlp(): YtDlp {
+  if (_ytdlp) return _ytdlp;
+  const binaryPath = process.env["YT_LLM_BINARY_PATH"];
+  _ytdlp = binaryPath ? new YtDlp({ binaryPath }) : new YtDlp();
+  return _ytdlp;
+}
 
 export type Entry = { url: string; id: string };
 
-export async function fetchEntries(url: string): Promise<Entry[]> {
-  const result = (await ytdlp.execAsync(url, {
+export type FetchOptions = {
+  /** Forwarded to yt-dlp's --socket-timeout (seconds). Default 30. */
+  socketTimeout?: number;
+};
+
+const DEFAULT_SOCKET_TIMEOUT = 30;
+
+export async function fetchEntries(
+  url: string,
+  options: FetchOptions = {},
+): Promise<Entry[]> {
+  const result = (await getYtDlp().execAsync(url, {
     flatPlaylist: true,
     skipDownload: true,
     noWarnings: true,
     print: "%(id)s\t%(webpage_url)s",
+    socketTimeout: options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT,
   })) as ExecBuilderResult;
   const entries: Entry[] = [];
   for (const line of result.stdout.split(/\r?\n/)) {
@@ -31,9 +48,19 @@ export async function fetchEntries(url: string): Promise<Entry[]> {
   return entries;
 }
 
-export async function fetchInfo(url: string): Promise<VideoInfo> {
-  const info = await ytdlp.getInfoAsync<"video">(url, { flatPlaylist: false });
-  return info as VideoInfo;
+export async function fetchInfo(
+  url: string,
+  options: FetchOptions = {},
+): Promise<VideoInfo> {
+  // Replicates ytdlp-nodejs's getInfoAsync but threads through socketTimeout
+  // (which getInfoAsync's narrow InfoOptions type does not expose).
+  const result = (await getYtDlp().execAsync(url, {
+    dumpSingleJson: true,
+    flatPlaylist: false,
+    noWarnings: true,
+    socketTimeout: options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT,
+  })) as ExecBuilderResult;
+  return JSON.parse(result.stdout) as VideoInfo;
 }
 
 export type CaptionsFile = {
@@ -42,17 +69,26 @@ export type CaptionsFile = {
   filename: string;
 };
 
+export type CaptionsResult =
+  | { kind: "ok"; file: CaptionsFile }
+  | { kind: "error"; reason: string }
+  | { kind: "none" };
+
 export async function fetchCaptionsToTemp(
   url: string,
   tempDir: string,
   subLangs: string[],
-): Promise<CaptionsFile | null> {
+  options: FetchOptions = {},
+): Promise<CaptionsResult> {
   // Subtitle fetches can fail per-language (HTTP 429, missing track, etc.) without
   // meaning "no captions" — yt-dlp exits non-zero but may still have written some files.
-  // Match the Python script's `check=False` behavior: swallow the error and inspect the
-  // tempdir afterwards. If no SRTs landed, the caller treats it as no captions available.
+  // Match the Python script's `check=False` behavior: capture the error, then inspect
+  // the tempdir. If SRTs landed, treat the throw as transient. If none landed, surface
+  // the suppressed error to the caller so it can distinguish "video has no captions" from
+  // "caption fetch hard-failed (geo block, age gate, rate limit, etc.)".
+  let suppressedError: string | null = null;
   try {
-    await ytdlp.execAsync(url, {
+    await getYtDlp().execAsync(url, {
       skipDownload: true,
       noPlaylist: true,
       writeSubs: true,
@@ -62,20 +98,29 @@ export async function fetchCaptionsToTemp(
       convertSubs: "srt",
       noWarnings: true,
       output: join(tempDir, "raw.%(ext)s"),
+      socketTimeout: options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT,
     });
-  } catch {
-    // intentionally suppressed — fall through to file glob
+  } catch (err) {
+    suppressedError = err instanceof Error ? err.message : String(err);
   }
   const srts = readdirSync(tempDir)
     .filter((f) => f.endsWith(".srt"))
     .map((f) => join(tempDir, f));
   const chosen = pickPreferredSrt(srts);
-  if (!chosen) return null;
-  return {
-    srtPath: chosen,
-    language: languageFromSrtName(chosen),
-    filename: chosen.slice(chosen.lastIndexOf("/") + 1),
-  };
+  if (chosen) {
+    return {
+      kind: "ok",
+      file: {
+        srtPath: chosen,
+        language: languageFromSrtName(chosen),
+        filename: basename(chosen),
+      },
+    };
+  }
+  if (suppressedError) {
+    return { kind: "error", reason: suppressedError };
+  }
+  return { kind: "none" };
 }
 
 export type { PlaylistInfo, VideoInfo };

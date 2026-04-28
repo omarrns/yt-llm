@@ -77,7 +77,13 @@ export type VideoMeta = z.infer<typeof VideoMetaSchema>;
 export type VideoSource = z.infer<typeof VideoSourceSchema>;
 export type VideoBundle = z.infer<typeof VideoBundleSchema>;
 
-export type AnalyzeError = { id: string; reason: string };
+export type AnalyzeErrorKind = "playlist" | "video" | "transcript";
+export type AnalyzeError = {
+  id: string;
+  reason: string;
+  /** Optional discriminant: "playlist" = top-level URL/enumeration failure, "video" = per-video failure, "transcript" = caption fetch failed for a video that otherwise succeeded. */
+  kind?: AnalyzeErrorKind;
+};
 export type AnalyzeResult = {
   bundles: VideoBundle[];
   errors: AnalyzeError[];

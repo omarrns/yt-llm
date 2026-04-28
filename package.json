@@ -1,6 +1,6 @@
 {
   "name": "yt-llm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "YouTube → typed VideoBundle. Captions, metadata, chapters in one validated object designed for LLM pipelines.",
   "keywords": [
     "youtube",
@@ -48,7 +48,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
   "engines": {
     "node": ">=20"
@@ -56,7 +56,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^14.0.3",
-    "ytdlp-nodejs": "^3.4.4",
+    "ytdlp-nodejs": "3.4.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {

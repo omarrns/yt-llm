@@ -21,3 +21,23 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Smoke-test built CLI
+        run: node dist/cli.js --help
+      - name: Smoke-test built MCP server starts
+        run: |
+          node dist/mcp.js < /dev/null &
+          PID=$!
+          sleep 1
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+      - name: Verify tarball contents
+        run: |
+          pnpm pack --pack-destination /tmp
+          tar -tzf /tmp/yt-llm-*.tgz | sort > /tmp/actual.txt
+          cat /tmp/actual.txt
+          grep -q '^package/dist/cli.js$' /tmp/actual.txt
+          grep -q '^package/dist/mcp.js$' /tmp/actual.txt
+          grep -q '^package/dist/index.js$' /tmp/actual.txt
+          grep -q '^package/dist/index.d.ts$' /tmp/actual.txt
+          grep -q '^package/LICENSE$' /tmp/actual.txt
+          grep -q '^package/README.md$' /tmp/actual.txt

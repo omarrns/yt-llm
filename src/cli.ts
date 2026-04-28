@@ -13,11 +13,29 @@ program
   .argument("<url>", "YouTube URL (video, short, or playlist)")
   .option("--output-dir <path>", "output directory", "./output")
   .option("--force", "wipe the per-video output directory before writing")
-  .option("--with-comments", "include yt-dlp comments in the underlying fetch")
   .option(
     "--sub-langs <langs>",
     "comma-separated list of yt-dlp subtitle language patterns",
     "en.*",
+  )
+  .option(
+    "--max-entries <n>",
+    "max entries to pull from a playlist (default 200, 0 to disable)",
+    parsePositiveInt,
+  )
+  .option(
+    "--concurrency <n>",
+    "parallel yt-dlp invocations (default 1)",
+    parsePositiveInt,
+  )
+  .option(
+    "--socket-timeout <sec>",
+    "yt-dlp socket timeout in seconds (default 30)",
+    parsePositiveInt,
+  )
+  .option(
+    "--allow-any-host",
+    "skip the YouTube hostname allowlist (use only for trusted URLs)",
   )
   .option(
     "--json",
@@ -27,7 +45,14 @@ program
     const subLangs = opts.subLangs.split(",").map((s) => s.trim());
     const result = await analyze(url, {
       subLangs,
-      withComments: opts.withComments,
+      ...(opts.maxEntries !== undefined ? { maxEntries: opts.maxEntries } : {}),
+      ...(opts.concurrency !== undefined
+        ? { concurrency: opts.concurrency }
+        : {}),
+      ...(opts.socketTimeout !== undefined
+        ? { socketTimeout: opts.socketTimeout }
+        : {}),
+      ...(opts.allowAnyHost ? { allowedHosts: "any" as const } : {}),
     });
 
     if (opts.json) {
@@ -53,7 +78,8 @@ program
     }
 
     for (const err of result.errors) {
-      process.stderr.write(`WARN: ${err.id}: ${err.reason}\n`);
+      const tag = err.kind ? `[${err.kind}] ` : "";
+      process.stderr.write(`WARN: ${tag}${err.id}: ${err.reason}\n`);
     }
 
     if (result.bundles.length === 0 && result.errors.length > 0) {
@@ -63,10 +89,21 @@ program
 
 program.parseAsync(process.argv);
 
+function parsePositiveInt(value: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`expected a non-negative integer, got "${value}"`);
+  }
+  return n;
+}
+
 type CliOptions = {
   outputDir: string;
   force?: boolean;
-  withComments?: boolean;
   subLangs: string;
+  maxEntries?: number;
+  concurrency?: number;
+  socketTimeout?: number;
+  allowAnyHost?: boolean;
   json?: boolean;
 };

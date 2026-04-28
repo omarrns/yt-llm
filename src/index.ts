@@ -12,6 +12,7 @@ export {
 } from "./schema.js";
 export type {
   AnalyzeError,
+  AnalyzeErrorKind,
   AnalyzeResult,
   Chapter,
   Transcript,
@@ -24,3 +25,5 @@ export type {
 } from "./schema.js";
 export { writeBundle, type WriteBundleOptions } from "./writeBundle.js";
 export { renderBundleMarkdown, formatTimestamp } from "./markdown.js";
+export { sanitizeBundle, type SanitizeOptions } from "./sanitize.js";
+export { DEFAULT_ALLOWED_HOSTS, isAllowedHost, isYouTubeUrl } from "./url.js";

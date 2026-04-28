@@ -10,6 +10,7 @@ import {
   type VideoMeta,
   VideoBundleSchema,
 } from "./schema.js";
+import { DEFAULT_ALLOWED_HOSTS, isAllowedHost } from "./url.js";
 import {
   fetchCaptionsToTemp,
   fetchEntries,
@@ -21,28 +22,72 @@ import {
 export type AnalyzeOptions = {
   /** Subtitle language patterns to fetch. Defaults to `['en.*']` to match the Python script. */
   subLangs?: string[];
-  /** Reserved for v0.1+: forwards options to yt-dlp's --write-comments. v0.1 only fetches them into raw info. */
-  withComments?: boolean;
+  /** Abort the operation. Honored between videos; in-flight yt-dlp processes are not killed. */
+  signal?: AbortSignal;
+  /** Cap on entries pulled from a playlist. Default 200. Set to 0 to disable. */
+  maxEntries?: number;
+  /** Parallel yt-dlp invocations. Default 1 (sequential). */
+  concurrency?: number;
+  /** Forwarded to yt-dlp's --socket-timeout (seconds). Default 30. */
+  socketTimeout?: number;
+  /** Hostname allowlist. Default: YouTube hosts only. Pass `"any"` to disable validation. */
+  allowedHosts?: readonly string[] | "any";
 };
+
+const DEFAULT_MAX_ENTRIES = 200;
+const DEFAULT_CONCURRENCY = 1;
+const DEFAULT_SOCKET_TIMEOUT = 30;
 
 export async function analyze(
   url: string,
   options: AnalyzeOptions = {},
 ): Promise<AnalyzeResult> {
   const subLangs = options.subLangs ?? ["en.*"];
+  const allowed = options.allowedHosts ?? DEFAULT_ALLOWED_HOSTS;
+  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  const socketTimeout = options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT;
+  const signal = options.signal;
+
   const bundles: VideoBundle[] = [];
   const errors: AnalyzeError[] = [];
   const raw: Record<string, unknown> = {};
 
+  if (allowed !== "any" && !isAllowedHost(url, allowed)) {
+    return {
+      bundles,
+      raw,
+      errors: [
+        {
+          id: url,
+          kind: "playlist",
+          reason: `url host not in allowed hosts (allowed: ${allowed.join(", ")}). pass allowedHosts: "any" to bypass.`,
+        },
+      ],
+    };
+  }
+
+  if (signal?.aborted) {
+    return {
+      bundles,
+      raw,
+      errors: [{ id: url, kind: "playlist", reason: "aborted before start" }],
+    };
+  }
+
   let entries: Entry[];
   try {
-    entries = await fetchEntries(url);
+    entries = await fetchEntries(url, { socketTimeout });
   } catch (err) {
     return {
       bundles,
       raw,
       errors: [
-        { id: url, reason: `entry enumeration failed: ${describe(err)}` },
+        {
+          id: url,
+          kind: "playlist",
+          reason: `entry enumeration failed: ${describe(err)}`,
+        },
       ],
     };
   }
@@ -53,24 +98,61 @@ export async function analyze(
       errors: [
         {
           id: url,
+          kind: "playlist",
           reason: "no playable entries (private, deleted, or invalid URL)",
         },
       ],
     };
   }
 
-  for (const entry of entries) {
-    try {
-      const result = await analyzeOne(entry, subLangs);
-      if (!result) {
-        errors.push({ id: entry.id, reason: "livestream — skipped" });
-        continue;
+  const limited =
+    maxEntries > 0 && entries.length > maxEntries
+      ? entries.slice(0, maxEntries)
+      : entries;
+  if (limited.length < entries.length) {
+    errors.push({
+      id: url,
+      kind: "playlist",
+      reason: `entry count ${entries.length} exceeded maxEntries ${maxEntries}; processing first ${limited.length}`,
+    });
+  }
+
+  let cursor = 0;
+  const workerCount = Math.min(concurrency, limited.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      if (signal?.aborted) return;
+      const idx = cursor++;
+      if (idx >= limited.length) return;
+      const entry = limited[idx]!;
+      try {
+        const result = await analyzeOne(entry, subLangs, socketTimeout);
+        if (!result) {
+          errors.push({
+            id: entry.id,
+            kind: "video",
+            reason: "livestream — skipped",
+          });
+          continue;
+        }
+        bundles.push(result.bundle);
+        raw[entry.id] = result.rawInfo;
+        if (result.transcriptError) {
+          errors.push({
+            id: entry.id,
+            kind: "transcript",
+            reason: result.transcriptError,
+          });
+        }
+      } catch (err) {
+        errors.push({ id: entry.id, kind: "video", reason: describe(err) });
       }
-      bundles.push(result.bundle);
-      raw[entry.id] = result.rawInfo;
-    } catch (err) {
-      errors.push({ id: entry.id, reason: describe(err) });
     }
+  });
+  await Promise.all(workers);
+
+  if (signal?.aborted) {
+    errors.push({ id: url, kind: "playlist", reason: "aborted mid-run" });
   }
 
   return { bundles, errors, raw };
@@ -79,11 +161,16 @@ export async function analyze(
 async function analyzeOne(
   entry: Entry,
   subLangs: string[],
-): Promise<{ bundle: VideoBundle; rawInfo: VideoInfo } | null> {
-  const info = await fetchInfo(entry.url);
+  socketTimeout: number,
+): Promise<{
+  bundle: VideoBundle;
+  rawInfo: VideoInfo;
+  transcriptError?: string;
+} | null> {
+  const info = await fetchInfo(entry.url, { socketTimeout });
   if (info.is_live || info.live_status === "is_live") return null;
   const meta = buildMeta(info);
-  const transcript = await buildTranscript(entry.url, subLangs);
+  const tr = await buildTranscript(entry.url, subLangs, socketTimeout);
   const bundle: VideoBundle = {
     source: { url: entry.url, id: entry.id, platform: "youtube" },
     meta,
@@ -91,19 +178,32 @@ async function analyzeOne(
       startSec: c.start_time,
       title: c.title,
     })),
-    transcript,
+    transcript: tr.transcript,
   };
-  return { bundle: VideoBundleSchema.parse(bundle), rawInfo: info };
+  const parsed = VideoBundleSchema.parse(bundle);
+  return tr.error
+    ? { bundle: parsed, rawInfo: info, transcriptError: tr.error }
+    : { bundle: parsed, rawInfo: info };
 }
 
 async function buildTranscript(
   url: string,
   subLangs: string[],
-): Promise<Transcript | null> {
+  socketTimeout: number,
+): Promise<{ transcript: Transcript | null; error?: string }> {
   const tmp = mkdtempSync(join(tmpdir(), "yt-llm-"));
   try {
-    const captions = await fetchCaptionsToTemp(url, tmp, subLangs);
-    if (!captions) return null;
+    const result = await fetchCaptionsToTemp(url, tmp, subLangs, {
+      socketTimeout,
+    });
+    if (result.kind === "none") return { transcript: null };
+    if (result.kind === "error") {
+      return {
+        transcript: null,
+        error: `caption fetch failed: ${result.reason}`,
+      };
+    }
+    const captions = result.file;
     const raw = readFileSync(captions.srtPath, "utf-8");
     const segments = dedupeSegments(parseSrt(raw));
     const paragraphs = toParagraphs(segments, 30);
@@ -112,12 +212,14 @@ async function buildTranscript(
       .join(" ")
       .trim();
     return {
-      source: "captions",
-      sourceDetail: captions.filename,
-      language: captions.language,
-      full,
-      segments,
-      paragraphs,
+      transcript: {
+        source: "captions",
+        sourceDetail: captions.filename,
+        language: captions.language,
+        full,
+        segments,
+        paragraphs,
+      },
     };
   } finally {
     rmSync(tmp, { recursive: true, force: true });
