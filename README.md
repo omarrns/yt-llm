@@ -1,14 +1,10 @@
 # yt-llm
 
-**YouTube → typed `VideoBundle`. One install, three surfaces.**
+Turn a YouTube URL into a typed, Zod-validated `VideoBundle`: metadata, chapters, deduped captions, transcript reflowed into paragraphs. One `analyze()` call. Built on [`ytdlp-nodejs`](https://www.npmjs.com/package/ytdlp-nodejs).
 
-A small TypeScript package that turns a YouTube URL into a validated, LLM-ready `VideoBundle` — metadata, chapters, deduped captions, paragraph-reflowed transcript — in one call. Built on [`ytdlp-nodejs`](https://www.npmjs.com/package/ytdlp-nodejs).
+Same pipeline three ways: import `analyze(url)` in TypeScript, run `yt-llm <url>` from the shell, or run `yt-llm-mcp` so Claude Desktop, Cursor, or any MCP client can call it.
 
-- **Programmatic API** — `analyze(url)` returns a Zod-validated bundle.
-- **CLI** — `yt-llm <url>` writes the same on-disk bundle layout the analyst tooling expects.
-- **MCP server** — `yt-llm-mcp` exposes the same call as a Model Context Protocol tool, ready for Claude Desktop / Cursor / any MCP client.
-
-v0.1 is captions-only (no compile-time native deps; the `yt-dlp` binary is fetched at install time). Whisper / Deepgram / keyframes are on the roadmap.
+v0.1 is captions-only (no native compile-time deps; `yt-dlp` is pulled when you install). Whisper, Deepgram, and keyframes are planned.
 
 ## Install
 
@@ -35,7 +31,7 @@ for (const err of result.errors) {
 }
 ```
 
-`analyze()` accepts both single videos and playlists. Failures (private, deleted, livestreams) land in `errors` instead of throwing — partial success matters when you hand it a 50-video playlist.
+`analyze()` accepts both single videos and playlists. Failures (private, deleted, livestreams) land in `errors` instead of throwing. Partial success matters when you hand it a 50-video playlist.
 
 ### `VideoBundle` shape
 
@@ -76,11 +72,11 @@ type VideoBundle = {
 };
 ```
 
-The schema is exported as `VideoBundleSchema` (Zod) — `parse()` it at boundaries to validate cached or persisted bundles.
+The schema is exported as `VideoBundleSchema` (Zod). Call `parse()` at boundaries to validate cached or persisted bundles.
 
 ## AI SDK example (the wedge)
 
-The bundle is _designed_ to be the input to a typed LLM call. Drop `bundle.transcript.full` plus `bundle.chapters` into `generateObject` and you get back a structured analysis with deep-link timestamps:
+The bundle is built to be the input to a typed LLM call. Drop `bundle.transcript.full` plus `bundle.chapters` into `generateObject` and you get back a structured analysis with deep-link timestamps:
 
 ```ts
 import { analyze } from "yt-llm";
@@ -137,7 +133,7 @@ By default, writes the same five-file layout the upstream Python script uses, so
   bundle.md
 ```
 
-With `--json`, prints the validated bundle to stdout — pipeable into `jq` or another tool.
+With `--json`, prints the validated bundle to stdout. Pipe it into `jq` or any other tool.
 
 ## MCP server
 
@@ -166,7 +162,7 @@ The server registers a single tool:
 
 ## Roadmap
 
-- v0.2: pluggable transcribers (`Transcriber` interface — captions / whisper-local / OpenAI / Deepgram), keyframe extraction for multimodal LLM use.
+- v0.2: pluggable transcribers (`Transcriber` interface covering captions, whisper-local, OpenAI, Deepgram), keyframe extraction for multimodal LLM use.
 - v0.3: non-YouTube platforms via the same `analyze()` surface.
 - v0.4: optional hosted endpoint for "send a URL, get a bundle" without running yt-dlp yourself.
 
