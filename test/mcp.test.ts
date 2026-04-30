@@ -4,6 +4,7 @@ vi.mock("../src/yt.js", () => ({
   fetchEntries: vi.fn(),
   fetchInfo: vi.fn(),
   fetchCaptionsToTemp: vi.fn(),
+  fetchComments: vi.fn(),
 }));
 
 import { analyzeTool, createServer } from "../src/mcp/server.js";
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.mocked(yt.fetchEntries).mockReset();
   vi.mocked(yt.fetchInfo).mockReset();
   vi.mocked(yt.fetchCaptionsToTemp).mockReset();
+  vi.mocked(yt.fetchComments).mockReset();
 });
 
 describe("analyzeTool — host allowlist", () => {
@@ -99,6 +101,58 @@ describe("analyzeTool — success path", () => {
     expect(payload.bundles).toHaveLength(1);
     expect(payload.errors[0].kind).toBe("transcript");
     expect(payload.errors[0].reason).toMatch(/HTTP 429/);
+  });
+});
+
+describe("analyzeTool — comments cap", () => {
+  beforeEach(() => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "vid", url: "https://youtube.com/watch?v=vid" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+    vi.mocked(yt.fetchComments).mockResolvedValue([]);
+  });
+
+  it("does not call fetchComments when withComments is absent", async () => {
+    await analyzeTool({ url: "https://youtube.com/watch?v=vid" });
+    expect(yt.fetchComments).not.toHaveBeenCalled();
+  });
+
+  it("clamps maxComments to the 2000 server-side cap regardless of input", async () => {
+    await analyzeTool({
+      url: "https://youtube.com/watch?v=vid",
+      withComments: true,
+      maxComments: 100000,
+    });
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 2000 }),
+    );
+  });
+
+  it("respects maxComments below the cap", async () => {
+    await analyzeTool({
+      url: "https://youtube.com/watch?v=vid",
+      withComments: true,
+      maxComments: 250,
+      commentSort: "new",
+    });
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 250, sort: "new" }),
+    );
+  });
+
+  it("defaults to max=500, sort=top when only withComments is set", async () => {
+    await analyzeTool({
+      url: "https://youtube.com/watch?v=vid",
+      withComments: true,
+    });
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 500, sort: "top" }),
+    );
   });
 });
 

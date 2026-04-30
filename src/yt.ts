@@ -63,6 +63,42 @@ export async function fetchInfo(
   return JSON.parse(result.stdout) as VideoInfo;
 }
 
+export type FetchCommentsOptions = {
+  max: number;
+  sort: "top" | "new";
+  socketTimeout?: number;
+};
+
+export async function fetchComments(
+  url: string,
+  opts: FetchCommentsOptions,
+): Promise<unknown[]> {
+  // Bypass ytdlp-nodejs's getComments() helper — it silently catches JSON parse
+  // errors and returns [], which would mask a comment fetch failure as "video
+  // has no comments." Going through execAsync directly lets non-zero exits and
+  // truncated payloads throw normally so analyze.ts can surface a kind: "comments"
+  // error instead of returning a misleading empty array.
+  const result = (await getYtDlp().execAsync(url, {
+    writeComments: true,
+    dumpSingleJson: true,
+    skipDownload: true,
+    noPlaylist: true,
+    noWarnings: true,
+    extractorArgs: {
+      // player_skip=webpage matches ytdlp-nodejs's own getComments — skips the
+      // slow initial HTML scrape that's not needed for the comments endpoint.
+      youtube: [
+        `max_comments=${opts.max}`,
+        `comment_sort=${opts.sort}`,
+        "player_skip=webpage",
+      ],
+    },
+    socketTimeout: opts.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT,
+  })) as ExecBuilderResult;
+  const parsed = JSON.parse(result.stdout) as { comments?: unknown };
+  return Array.isArray(parsed.comments) ? parsed.comments : [];
+}
+
 export type CaptionsFile = {
   srtPath: string;
   language: string;

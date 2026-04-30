@@ -71,10 +71,33 @@ type VideoBundle = {
     segments: { startSec: number; endSec: number; text: string }[];
     paragraphs: { startSec: number; text: string }[]; // reflowed ~30s windows
   } | null; // null when no captions are available
+  comments?: {
+    id: string;
+    parentId: string; // "root" for top-level comments, otherwise parent id
+    text: string;
+    author: string;
+    authorId: string | null;
+    authorIsUploader: boolean;
+    authorIsVerified: boolean;
+    isPinned: boolean;
+    isFavorited: boolean;
+    likeCount: number | null;
+    timestampSec: number | null;
+  }[] | null; // absent unless requested; null when requested but fetch failed
 };
 ```
 
 The schema is exported as `VideoBundleSchema` (Zod). Call `parse()` at boundaries to validate cached or persisted bundles.
+
+Comments are opt-in because fetching them is slower and more rate-limit prone than metadata/captions. Pass `comments: { max, sort }` to `analyze()` to fetch them:
+
+```ts
+const result = await analyze("https://youtu.be/...", {
+  comments: { max: 500, sort: "top" },
+});
+```
+
+When comments are not requested, the `comments` key is absent. When requested but fetching fails, `comments` is `null` and `errors` includes `{ kind: "comments" }`. When requested and successful, `comments` is an array, including `[]` for a video with no fetched comments.
 
 ## AI SDK example (the wedge)
 
@@ -125,6 +148,9 @@ Options:
   --socket-timeout <sec>  yt-dlp socket timeout in seconds (default 30)
   --allow-any-host        skip the YouTube hostname allowlist
   --json                  print the validated VideoBundle JSON to stdout
+  --with-comments         fetch comments in a separate yt-dlp call
+  --max-comments <n>      cap on total comments fetched per video (default 500)
+  --comment-sort <sort>   comment ordering: "top" or "new" (default "top")
 ```
 
 By default, writes the same five-file layout the upstream Python script uses, so existing analyst tooling keeps working:
@@ -135,6 +161,7 @@ By default, writes the same five-file layout the upstream Python script uses, so
   metadata.json              # the typed VideoBundle.meta subset
   transcript.txt
   transcript.timestamped.txt
+  comments.json             # only when --with-comments succeeds
   bundle.md
 ```
 
@@ -155,10 +182,10 @@ The server registers a single tool:
 | Field     | Value                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------- |
 | Tool name | `analyze_youtube_video`                                                                                    |
-| Input     | `{ url: string, subLangs?: string[] }`                                                                     |
-| Output    | `{ bundles: VideoBundle[], errors: { id, reason, kind?: "playlist"\|"video"\|"transcript" }[] }` (as text) |
+| Input     | `{ url: string, subLangs?: string[], withComments?: boolean, maxComments?: number, commentSort?: "top"\|"new" }` |
+| Output    | `{ bundles: VideoBundle[], errors: { id, reason, kind?: "playlist"\|"video"\|"transcript"\|"comments" }[] }` (as text) |
 
-`url` is validated against a YouTube hostname allowlist before any network call; non-YouTube URLs are rejected without invoking yt-dlp.
+`url` is validated against a YouTube hostname allowlist before any network call; non-YouTube URLs are rejected without invoking yt-dlp. Comments are off by default; when `withComments` is true, `maxComments` defaults to 500 and is capped at 2000 on the MCP surface.
 
 ## Claude Code skill
 
@@ -175,7 +202,7 @@ It's a thin prompting layer over the same `analyze()` call exposed by the librar
 
 ## Untrusted-content note (read this before piping bundles into an LLM)
 
-The bundle is built from creator-controlled fields — title, description, tags, chapter titles, captions. Treat them as untrusted input. The package surfaces them verbatim by default; what an attacker uploads to YouTube is what your model sees.
+The bundle is built from creator-controlled and commenter-controlled fields — title, description, tags, chapter titles, captions, and optionally comments. Treat them as untrusted input. The package surfaces them verbatim by default; what an attacker uploads to YouTube or writes in the comment section is what your model sees.
 
 Concretely:
 
@@ -207,7 +234,6 @@ The MCP server enforces a YouTube hostname allowlist on `url`. The library `anal
 
 - No Whisper / Deepgram / OpenAI transcription. If a video has no captions, `transcript` is `null` (not a crash). The transcript schema's `source` union is widened for forwards-compat.
 - No keyframe extraction.
-- No comments expansion.
 - YouTube only (`source.platform` is the literal `'youtube'`).
 
 ## Roadmap

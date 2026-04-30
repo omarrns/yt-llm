@@ -4,6 +4,7 @@ vi.mock("../src/yt.js", () => ({
   fetchEntries: vi.fn(),
   fetchInfo: vi.fn(),
   fetchCaptionsToTemp: vi.fn(),
+  fetchComments: vi.fn(),
 }));
 
 import { analyze } from "../src/analyze.js";
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.mocked(yt.fetchEntries).mockReset();
   vi.mocked(yt.fetchInfo).mockReset();
   vi.mocked(yt.fetchCaptionsToTemp).mockReset();
+  vi.mocked(yt.fetchComments).mockReset();
 });
 
 describe("analyze — host allowlist", () => {
@@ -304,6 +306,96 @@ describe("analyze — per-entry host allowlist", () => {
     });
     expect(r.bundles).toHaveLength(1);
     expect(yt.fetchInfo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("analyze — comments", () => {
+  beforeEach(() => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "vid", url: "https://youtube.com/watch?v=vid" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+  });
+
+  it("comments key is absent (not null) and fetchComments not called when caller does not opt in", async () => {
+    const r = await analyze("https://youtube.com/watch?v=vid");
+    // Key MUST be absent (not just null/undefined value) so JSON.stringify
+    // omits it — preserves byte-identical --json output for v0.1 callers.
+    expect(r.bundles[0]).toBeDefined();
+    expect("comments" in r.bundles[0]!).toBe(false);
+    expect(yt.fetchComments).not.toHaveBeenCalled();
+  });
+
+  it("forwards {max, sort} to fetchComments and populates bundle.comments when opted in", async () => {
+    vi.mocked(yt.fetchComments).mockResolvedValue([
+      {
+        id: "c1",
+        parent: "root",
+        text: "great video",
+        author: "Alice",
+        author_id: "UCalice",
+        author_is_uploader: false,
+        author_is_verified: false,
+        is_pinned: false,
+        is_favorited: false,
+        like_count: 5,
+        timestamp: 1700000000,
+      },
+    ]);
+    const r = await analyze("https://youtube.com/watch?v=vid", {
+      comments: { max: 250, sort: "new" },
+    });
+    expect(yt.fetchComments).toHaveBeenCalledOnce();
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 250, sort: "new" }),
+    );
+    expect(r.bundles[0]?.comments).toEqual([
+      {
+        id: "c1",
+        parentId: "root",
+        text: "great video",
+        author: "Alice",
+        authorId: "UCalice",
+        authorIsUploader: false,
+        authorIsVerified: false,
+        isPinned: false,
+        isFavorited: false,
+        likeCount: 5,
+        timestampSec: 1700000000,
+      },
+    ]);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("comments: [] when fetch succeeds but the video has no comments", async () => {
+    vi.mocked(yt.fetchComments).mockResolvedValue([]);
+    const r = await analyze("https://youtube.com/watch?v=vid", {
+      comments: { max: 100, sort: "top" },
+    });
+    expect(r.bundles[0]?.comments).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
+  // Load-bearing: a comment-only failure must NEVER drop the metadata + transcript
+  // bundle. Regressing this would re-introduce the partial-failure mode the
+  // adversarial review surfaced (see plan: round-2 design fix).
+  it("comments: null AND a kind:comments error when fetchComments throws — bundle still ships", async () => {
+    vi.mocked(yt.fetchComments).mockRejectedValue(
+      new Error("HTTP 429: rate limited"),
+    );
+    const r = await analyze("https://youtube.com/watch?v=vid", {
+      comments: { max: 500, sort: "top" },
+    });
+    expect(r.bundles).toHaveLength(1);
+    expect(r.bundles[0]?.source.id).toBe("vid");
+    expect(r.bundles[0]?.meta.title).toBe("Test Title");
+    expect(r.bundles[0]?.comments).toBeNull();
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]?.kind).toBe("comments");
+    expect(r.errors[0]?.id).toBe("vid");
+    expect(r.errors[0]?.reason).toMatch(/HTTP 429/);
   });
 });
 

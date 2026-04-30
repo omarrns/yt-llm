@@ -2,6 +2,7 @@ export { analyze, normalizeUploadDate } from "./analyze.js";
 export type { AnalyzeOptions } from "./analyze.js";
 export {
   ChapterSchema,
+  CommentSchema,
   TranscriptParagraphSchema,
   TranscriptSchema,
   TranscriptSegmentSchema,
@@ -15,6 +16,7 @@ export type {
   AnalyzeErrorKind,
   AnalyzeResult,
   Chapter,
+  Comment,
   Transcript,
   TranscriptParagraph,
   TranscriptSegment,

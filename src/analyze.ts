@@ -5,6 +5,7 @@ import { dedupeSegments, parseSrt, toParagraphs } from "./transcript/index.js";
 import {
   type AnalyzeError,
   type AnalyzeResult,
+  type Comment,
   type Transcript,
   type VideoBundle,
   type VideoMeta,
@@ -13,9 +14,11 @@ import {
 import { DEFAULT_ALLOWED_HOSTS, isAllowedHost } from "./url.js";
 import {
   fetchCaptionsToTemp,
+  fetchComments,
   fetchEntries,
   fetchInfo,
   type Entry,
+  type FetchCommentsOptions,
   type VideoInfo,
 } from "./yt.js";
 
@@ -38,6 +41,15 @@ export type AnalyzeOptions = {
   socketTimeout?: number;
   /** Hostname allowlist. Default: YouTube hosts only. Pass `"any"` to disable validation. */
   allowedHosts?: readonly string[] | "any";
+  /**
+   * Opt in to comment fetching. Off by default — comment fetching runs as a
+   * separate yt-dlp invocation, is rate-limit prone, and adds material wall
+   * time on videos with non-trivial comment counts. When set, comments fetch
+   * runs *after* metadata + transcript: a comment-fetch failure is captured
+   * as `kind: "comments"` in `result.errors[]` and the bundle still ships
+   * with `comments: null` rather than dropping the whole entry.
+   */
+  comments?: FetchCommentsOptions;
 };
 
 const DEFAULT_MAX_ENTRIES = 200;
@@ -55,6 +67,7 @@ export async function analyze(
   // clamped to 1 here so a bad value can't deadlock the worker pool.
   const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
   const socketTimeout = options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT;
+  const commentOpts = options.comments;
   const signal = options.signal;
 
   const bundles: VideoBundle[] = [];
@@ -149,7 +162,12 @@ export async function analyze(
         continue;
       }
       try {
-        const result = await analyzeOne(entry, subLangs, socketTimeout);
+        const result = await analyzeOne(
+          entry,
+          subLangs,
+          socketTimeout,
+          commentOpts,
+        );
         if (!result) {
           errors.push({
             id: entry.id,
@@ -174,6 +192,13 @@ export async function analyze(
             reason: result.transcriptError,
           });
         }
+        if (result.commentsError) {
+          errors.push({
+            id: entry.id,
+            kind: "comments",
+            reason: result.commentsError,
+          });
+        }
       } catch (err) {
         errors.push({ id: entry.id, kind: "video", reason: describe(err) });
       }
@@ -194,15 +219,34 @@ async function analyzeOne(
   entry: Entry,
   subLangs: string[],
   socketTimeout: number,
+  commentOpts: FetchCommentsOptions | undefined,
 ): Promise<{
   bundle: VideoBundle;
   rawInfo: VideoInfo;
   transcriptError?: string;
+  commentsError?: string;
 } | null> {
   const info = await fetchInfo(entry.url, { socketTimeout });
   if (info.is_live || info.live_status === "is_live") return null;
   const meta = buildMeta(info);
   const tr = await buildTranscript(entry.url, subLangs, socketTimeout);
+  // Comments fetch is intentionally separate from fetchInfo so a comment-only
+  // failure (rate limit, paginator timeout, geo-blocked thread) cannot drop
+  // the metadata + transcript bundle. On failure: comments stays null, error
+  // bubbles up as kind: "comments" — bundle still ships.
+  let comments: Comment[] | null = null;
+  let commentsError: string | undefined;
+  if (commentOpts) {
+    try {
+      const rawComments = await fetchComments(entry.url, {
+        ...commentOpts,
+        socketTimeout,
+      });
+      comments = buildComments(rawComments);
+    } catch (err) {
+      commentsError = `comment fetch failed: ${describe(err)}`;
+    }
+  }
   const bundle: VideoBundle = {
     source: { url: entry.url, id: entry.id, platform: "youtube" },
     meta,
@@ -211,11 +255,21 @@ async function analyzeOne(
       title: c.title,
     })),
     transcript: tr.transcript,
+    // Only include the `comments` key when the caller opted in. Keeping the
+    // field absent in the no-opt-in path preserves byte-identical --json
+    // output and lets pre-v0.2 bundle constructions still parse.
+    ...(commentOpts ? { comments } : {}),
   };
   const parsed = VideoBundleSchema.parse(bundle);
-  return tr.error
-    ? { bundle: parsed, rawInfo: info, transcriptError: tr.error }
-    : { bundle: parsed, rawInfo: info };
+  const out: {
+    bundle: VideoBundle;
+    rawInfo: VideoInfo;
+    transcriptError?: string;
+    commentsError?: string;
+  } = { bundle: parsed, rawInfo: info };
+  if (tr.error) out.transcriptError = tr.error;
+  if (commentsError) out.commentsError = commentsError;
+  return out;
 }
 
 async function buildTranscript(
@@ -281,6 +335,43 @@ function buildMeta(info: VideoInfo): VideoMeta {
     ageLimit: info.age_limit ?? 0,
     availability: info.availability ?? null,
   };
+}
+
+type RawComment = {
+  id?: unknown;
+  parent?: unknown;
+  text?: unknown;
+  author?: unknown;
+  author_id?: unknown;
+  author_is_uploader?: unknown;
+  author_is_verified?: unknown;
+  is_pinned?: unknown;
+  is_favorited?: unknown;
+  like_count?: unknown;
+  timestamp?: unknown;
+};
+
+export function buildComments(raw: unknown[]): Comment[] {
+  const out: Comment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const c = item as RawComment;
+    if (typeof c.id !== "string" || typeof c.text !== "string") continue;
+    out.push({
+      id: c.id,
+      parentId: typeof c.parent === "string" ? c.parent : "root",
+      text: c.text,
+      author: typeof c.author === "string" ? c.author : "",
+      authorId: typeof c.author_id === "string" ? c.author_id : null,
+      authorIsUploader: c.author_is_uploader === true,
+      authorIsVerified: c.author_is_verified === true,
+      isPinned: c.is_pinned === true,
+      isFavorited: c.is_favorited === true,
+      likeCount: typeof c.like_count === "number" ? c.like_count : null,
+      timestampSec: typeof c.timestamp === "number" ? c.timestamp : null,
+    });
+  }
+  return out;
 }
 
 /** Convert yt-dlp's "20260427" upload_date string to ISO "2026-04-27". Returns null on failure. */

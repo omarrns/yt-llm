@@ -107,6 +107,51 @@ describe("writeBundle", () => {
     expect(metaJson).toEqual(bundle.meta);
   });
 
+  it("omits comments.json when bundle.comments is absent (caller didn't opt in)", () => {
+    const bundle = makeBundle();
+    writeBundle(bundle, { outputDir: outDir });
+    expect(existsSync(join(outDir, "abc", "comments.json"))).toBe(false);
+  });
+
+  it("omits comments.json when bundle.comments is null (caller opted in but fetch failed)", () => {
+    const bundle = makeBundle();
+    bundle.comments = null;
+    writeBundle(bundle, { outputDir: outDir });
+    expect(existsSync(join(outDir, "abc", "comments.json"))).toBe(false);
+  });
+
+  it("writes comments.json when bundle.comments is an empty array (asked, video has none)", () => {
+    const bundle = makeBundle();
+    bundle.comments = [];
+    writeBundle(bundle, { outputDir: outDir });
+    const path = join(outDir, "abc", "comments.json");
+    expect(existsSync(path)).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf-8"))).toEqual([]);
+  });
+
+  it("writes comments.json with the typed array when comments are populated", () => {
+    const bundle = makeBundle();
+    bundle.comments = [
+      {
+        id: "c1",
+        parentId: "root",
+        text: "nice",
+        author: "Alice",
+        authorId: "UCalice",
+        authorIsUploader: false,
+        authorIsVerified: false,
+        isPinned: false,
+        isFavorited: false,
+        likeCount: 3,
+        timestampSec: 1700000000,
+      },
+    ];
+    writeBundle(bundle, { outputDir: outDir });
+    const path = join(outDir, "abc", "comments.json");
+    expect(existsSync(path)).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf-8"))).toEqual(bundle.comments);
+  });
+
   it("rejects a bundle whose source.id would escape outputDir (path traversal)", () => {
     const bundle = makeBundle();
     // Bypass the schema regex by casting — simulates a hand-built bundle

@@ -12,7 +12,13 @@ export type CliOptions = {
   socketTimeout?: number;
   allowAnyHost?: boolean;
   json?: boolean;
+  withComments?: boolean;
+  maxComments?: number;
+  commentSort?: "top" | "new";
 };
+
+const DEFAULT_MAX_COMMENTS = 500;
+const DEFAULT_COMMENT_SORT: "top" = "top";
 
 /**
  * Pure entrypoint for the CLI action. Returns the exit code instead of setting
@@ -32,6 +38,14 @@ export async function runCli(url: string, opts: CliOptions): Promise<number> {
       ? { socketTimeout: opts.socketTimeout }
       : {}),
     ...(opts.allowAnyHost ? { allowedHosts: "any" as const } : {}),
+    ...(opts.withComments
+      ? {
+          comments: {
+            max: opts.maxComments ?? DEFAULT_MAX_COMMENTS,
+            sort: opts.commentSort ?? DEFAULT_COMMENT_SORT,
+          },
+        }
+      : {}),
   });
 
   if (opts.json) {
@@ -89,6 +103,13 @@ export function parsePositive(value: string): number {
   return n;
 }
 
+export function parseCommentSort(value: string): "top" | "new" {
+  if (value !== "top" && value !== "new") {
+    throw new Error(`expected "top" or "new", got "${value}"`);
+  }
+  return value;
+}
+
 export function buildProgram(): Command {
   const program = new Command();
   program
@@ -126,6 +147,20 @@ export function buildProgram(): Command {
     .option(
       "--json",
       "print the validated VideoBundle JSON to stdout instead of writing files",
+    )
+    .option(
+      "--with-comments",
+      "fetch top-level comments + replies (separate yt-dlp call; opt-in)",
+    )
+    .option(
+      "--max-comments <n>",
+      "cap on total comments fetched per video (default 500)",
+      parsePositive,
+    )
+    .option(
+      "--comment-sort <sort>",
+      'comment ordering: "top" or "new" (default "top")',
+      parseCommentSort,
     )
     .action(async (url: string, opts: CliOptions) => {
       process.exitCode = await runCli(url, opts);

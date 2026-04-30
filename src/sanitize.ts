@@ -73,5 +73,20 @@ export function sanitizeBundle(
           })),
         }
       : null,
+    // `bundle.comments` is tri-state (absent / null / array). Preserve "absent"
+    // so sanitize doesn't accidentally upgrade a v0.1-shaped bundle to v0.2's
+    // `comments: null` shape. Commenter-controlled text gets the same
+    // invisible-char strip as title / description.
+    ...(bundle.comments !== undefined
+      ? {
+          comments: bundle.comments
+            ? bundle.comments.map((c) => ({
+                ...c,
+                text: stripCtrl(c.text),
+                author: oneLine(c.author),
+              }))
+            : null,
+        }
+      : {}),
   };
 }

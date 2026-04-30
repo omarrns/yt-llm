@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +7,15 @@ vi.mock("../src/yt.js", () => ({
   fetchEntries: vi.fn(),
   fetchInfo: vi.fn(),
   fetchCaptionsToTemp: vi.fn(),
+  fetchComments: vi.fn(),
 }));
 
-import { runCli, parseNonNeg, parsePositive } from "../src/cli.js";
+import {
+  runCli,
+  parseNonNeg,
+  parsePositive,
+  parseCommentSort,
+} from "../src/cli.js";
 import * as yt from "../src/yt.js";
 import type { VideoInfo } from "ytdlp-nodejs";
 
@@ -44,6 +50,15 @@ beforeEach(() => {
   vi.mocked(yt.fetchEntries).mockReset();
   vi.mocked(yt.fetchInfo).mockReset();
   vi.mocked(yt.fetchCaptionsToTemp).mockReset();
+  vi.mocked(yt.fetchComments).mockReset();
+});
+
+// Tear down any vi.spyOn() instances each test installs on shared globals
+// (process.stdout/stderr.write). vitest 4 stacks spies if you don't restore,
+// and the topmost spy ends up capturing writes that happened during *earlier*
+// tests' spy installations — which masquerades as cross-test pollution.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("parseNonNeg", () => {
@@ -72,6 +87,83 @@ describe("parsePositive", () => {
   it("rejects negatives and non-numeric", () => {
     expect(() => parsePositive("-1")).toThrow(/positive integer/);
     expect(() => parsePositive("xyz")).toThrow(/positive integer/);
+  });
+});
+
+describe("parseCommentSort", () => {
+  it('accepts "top" and "new"', () => {
+    expect(parseCommentSort("top")).toBe("top");
+    expect(parseCommentSort("new")).toBe("new");
+  });
+  it("rejects anything else, including yt-dlp aliases", () => {
+    expect(() => parseCommentSort("hot")).toThrow(/expected "top" or "new"/);
+    expect(() => parseCommentSort("TOP")).toThrow(/expected "top" or "new"/);
+    expect(() => parseCommentSort("")).toThrow(/expected "top" or "new"/);
+  });
+});
+
+describe("runCli — comments forwarding", () => {
+  it("does not call fetchComments when --with-comments is absent", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "vid", url: "https://youtube.com/watch?v=vid" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await runCli("https://youtube.com/watch?v=vid", {
+      outputDir: "./irrelevant",
+      subLangs: "en.*",
+      json: true,
+    });
+    expect(yt.fetchComments).not.toHaveBeenCalled();
+  });
+
+  it("forwards --max-comments and --comment-sort to fetchComments when --with-comments is set", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "vid", url: "https://youtube.com/watch?v=vid" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+    vi.mocked(yt.fetchComments).mockResolvedValue([]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await runCli("https://youtube.com/watch?v=vid", {
+      outputDir: "./irrelevant",
+      subLangs: "en.*",
+      json: true,
+      withComments: true,
+      maxComments: 42,
+      commentSort: "new",
+    });
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 42, sort: "new" }),
+    );
+  });
+
+  it("defaults to max=500, sort=top when --with-comments is set without tunables", async () => {
+    vi.mocked(yt.fetchEntries).mockResolvedValue([
+      { id: "vid", url: "https://youtube.com/watch?v=vid" },
+    ]);
+    vi.mocked(yt.fetchInfo).mockResolvedValue(videoInfo());
+    vi.mocked(yt.fetchCaptionsToTemp).mockResolvedValue({ kind: "none" });
+    vi.mocked(yt.fetchComments).mockResolvedValue([]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await runCli("https://youtube.com/watch?v=vid", {
+      outputDir: "./irrelevant",
+      subLangs: "en.*",
+      json: true,
+      withComments: true,
+    });
+    expect(yt.fetchComments).toHaveBeenCalledWith(
+      "https://youtube.com/watch?v=vid",
+      expect.objectContaining({ max: 500, sort: "top" }),
+    );
   });
 });
 

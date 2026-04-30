@@ -61,6 +61,14 @@ export function writeBundle(
     files.push(stampedPath);
   }
 
+  // `bundle.comments` is tri-state: absent (not requested), null (asked, fetch
+  // failed), or an array. Only emit the file when we actually have an array.
+  if (bundle.comments != null) {
+    const commentsPath = join(dir, "comments.json");
+    writeFileSync(commentsPath, JSON.stringify(bundle.comments, null, 2));
+    files.push(commentsPath);
+  }
+
   const mdPath = join(dir, "bundle.md");
   writeFileSync(mdPath, renderBundleMarkdown(bundle));
   files.push(mdPath);

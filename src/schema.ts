@@ -62,6 +62,24 @@ export const VideoMetaSchema = z.object({
   availability: z.string().nullable(),
 });
 
+export const CommentSchema = z.object({
+  id: z.string(),
+  /** "root" for top-level comments, otherwise the parent comment id (yt-dlp's `parent` field). */
+  parentId: z.string(),
+  text: z.string(),
+  author: z.string(),
+  /** Channel id of the commenter — load-bearing for downstream commenter enrichment / ICP matching. */
+  authorId: z.string().nullable(),
+  authorIsUploader: z.boolean(),
+  authorIsVerified: z.boolean(),
+  isPinned: z.boolean(),
+  /** True if the comment was hearted by the creator. */
+  isFavorited: z.boolean(),
+  likeCount: z.number().nullable(),
+  /** Unix epoch seconds; null when yt-dlp can't extract one. */
+  timestampSec: z.number().nullable(),
+});
+
 export const VideoSourceSchema = z.object({
   url: z.string(),
   // Constrained to filename-safe chars so it can't escape an outputDir
@@ -80,6 +98,17 @@ export const VideoBundleSchema = z.object({
   meta: VideoMetaSchema,
   chapters: z.array(ChapterSchema),
   transcript: TranscriptSchema.nullable(),
+  /**
+   * Tri-state by design — kept fully optional so old-shaped bundles (and
+   * default `--json` output when comments aren't requested) stay parseable
+   * and byte-identical to v0.1.3:
+   *   - field absent: caller didn't opt in (`withComments` not set)
+   *   - `null`: caller opted in but the comment fetch failed (look for
+   *     `kind: "comments"` in `result.errors`)
+   *   - `[]`: caller opted in, fetch succeeded, video has no comments
+   *   - `Comment[]`: comments fetched and validated
+   */
+  comments: z.array(CommentSchema).nullable().optional(),
 });
 
 export type Chapter = z.infer<typeof ChapterSchema>;
@@ -90,12 +119,13 @@ export type Transcript = z.infer<typeof TranscriptSchema>;
 export type VideoMeta = z.infer<typeof VideoMetaSchema>;
 export type VideoSource = z.infer<typeof VideoSourceSchema>;
 export type VideoBundle = z.infer<typeof VideoBundleSchema>;
+export type Comment = z.infer<typeof CommentSchema>;
 
-export type AnalyzeErrorKind = "playlist" | "video" | "transcript";
+export type AnalyzeErrorKind = "playlist" | "video" | "transcript" | "comments";
 export type AnalyzeError = {
   id: string;
   reason: string;
-  /** Optional discriminant: "playlist" = top-level URL/enumeration failure, "video" = per-video failure, "transcript" = caption fetch failed for a video that otherwise succeeded. */
+  /** Optional discriminant: "playlist" = top-level URL/enumeration failure, "video" = per-video failure, "transcript" = caption fetch failed for a video that otherwise succeeded, "comments" = comment fetch failed but the metadata + transcript bundle still shipped (`bundle.comments` is `null`). */
   kind?: AnalyzeErrorKind;
 };
 export type AnalyzeResult = {
