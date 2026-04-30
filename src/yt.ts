@@ -85,12 +85,15 @@ export async function fetchComments(
     noPlaylist: true,
     noWarnings: true,
     extractorArgs: {
-      // player_skip=webpage matches ytdlp-nodejs's own getComments — skips the
-      // slow initial HTML scrape that's not needed for the comments endpoint.
+      // ytdlp-nodejs space-joins this array, but yt-dlp's --extractor-args
+      // grammar uses ';' to separate items within one key. Space-joined args
+      // get silently dropped — verified empirically: max_comments=30 was
+      // ignored and 244 comments came back. Pre-join with ';' as a single
+      // element so the wire form is `youtube:max_comments=30;comment_sort=top;...`.
+      // player_skip=webpage matches upstream getComments — skips the slow
+      // initial HTML scrape not needed for the comments endpoint.
       youtube: [
-        `max_comments=${opts.max}`,
-        `comment_sort=${opts.sort}`,
-        "player_skip=webpage",
+        `max_comments=${opts.max};comment_sort=${opts.sort};player_skip=webpage`,
       ],
     },
     socketTimeout: opts.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT,
